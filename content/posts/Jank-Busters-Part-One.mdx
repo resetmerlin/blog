@@ -1,0 +1,188 @@
+---
+title: Jank Busters Part One · V8
+description: What is a Garbage Collector in V8 engine?
+date: "2024-01-04"
+---
+
+## What is Jank?
+
+Jank, or in other words visible stutters, can be noticed when Chrome fails to render a frame within 16.66 ms (disrupting 60 frames per second motion).
+the meaning of stutters is kind of like this:
+
+<Image
+  src="/Jank-Busters-Part-One/Pasted image 20231017155140.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+so Jank would be irregular frames.
+
+The ideal frame during render would satisfy the Consistent Timing.
+
+> Consistent Timing?: Every frame should be rendered within the same time interval, which is typically 16.66ms for 60 frames per second (FPS). This ensures smooth motion.
+
+As of today most of the V8 garbage collection work is performed on the main rendering thread, c.f. Figure 1, often resulting in jank when too many objects need to be maintained.
+
+<Image
+  src="/Jank-Busters-Part-One/Pasted image 20231018235836.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+Figure 1: Garbage collection performed on the main thread
+
+## So when there are too many objects need to be maintained, often resulting visible stutters(Jank)?
+
+Yes , V8 is the JavaScript engine used by Chrome (and some other browsers and platforms). One of the responsibilities of any programming language runtime or engine is to manage memory, particularly to reclaim memory that's no longer in use. This process is known as garbage collection (GC).
+
+In V8, as with many JavaScript engines, garbage collection is typically a stop-the-world event.
+This means that while garbage collection is happening, all other activities (like rendering or script execution) are halted(bring or come to an abrupt stop).
+If garbage collection takes a long time, it can push frame rendering past the 16.67ms window (for 60 FPS), causing visible stutters or "jank."
+
+## So gc is kind of related to user experience?
+
+Absolutely, garbage collection (GC) in JavaScript engines like V8 is closely related to user experience,
+especially in web applications and browser-based activities.
+
+Here's why:
+
+1. Smooth Rendering: As discussed earlier, prolonged or frequent garbage collection events can push frame rendering past the desired interval (e.g., 16.67ms for 60 FPS).
+   When GC disrupts the smooth rendering of frames, users can experience visible stutters or "jank." This can be especially noticeable in web-based games, animations, or any interactive applications where fluidity is crucial.
+2. Responsiveness: Beyond just rendering, GC can also affect the responsiveness of a web application.
+   For instance, if the main thread is paused due to GC, user interactions like button clicks, scroll events, or input might be delayed or feel laggy.
+3. Perceived Performance: Even if an application is technically efficient in terms of raw computation, frequent or
+   long GC pauses can make it feel slower or less responsive to the end user. This perception can be just as impactful as actual performance metrics.
+4. Predictability: Consistent behavior is crucial for user experience.
+   If an app runs smoothly most of the time but occasionally has hiccups due to GC, it can be jarring for the user.
+
+So eliminating jank has always been a high priority for the V8 team.
+This article discusses a few optimizations that were implemented between Chrome 41 and Chrome 46 which significantly reduce garbage collection pauses resulting in better user experience.
+
+<Image
+  src="/Jank-Busters-Part-One/Pasted image 20231018235836.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+> Thread vs Process
+> To better answer this question, let’s first understand what a program is. A program is an executable file.
+> It contains the code, or a set of processor instructions, that is stored as a file on disk.
+> When the code in a program is loaded into memory and executed by the processor, it becomes a process.
+> So what is a thread? A thread is the unit of execution within a process. A process has at least one thread. It is called the main thread.
+
+## Why Jank is happening?
+
+### 1. Processing of various Bookkeeping data structures
+
+The main reasons for the visible stutters or janks (pauses or interruptions that degrade the
+user experience) during garbage collection (GC) is the processing of various Bookkeeping data structures.
+Many of these data structures enable optimizations that are unrelated to garbage collection.
+
+> Bookkeeping:
+> generally refers to the act of maintaining and managing metadata or data about data.
+> It can involve keeping track of data structures, references, counters, and other relevant information that allows a system to function correctly.
+> Think of garbage collection as a janitor cleaning up a library.
+> The janitor needs to decide which books (data) are no longer being read and can be put away (freed memory).
+> But to decide this, the janitor needs to check a list (bookkeeping data) of all the books and see which ones haven't been borrowed for a while.
+> If this list is long and complex, the janitor might take a while to clean up, and during this time, library patrons (users) might notice the janitor in the way (jank).
+
+Two examples are the list of all ArrayBuffers, and each ArrayBuffer’s list of views. These lists allow for an efficient implementation of the DetachArrayBuffer operation without imposing any performance hit on access to an ArrayBuffer view.
+
+In the technical context of the statement:
+
+1. The "list of all ArrayBuffers" and "each ArrayBuffer's list of views" serve as these organized "lists" or "records."
+2. When an ArrayBuffer is detached (or removed), it's important to ensure that all its associated views are also updated or invalidated so they don't try to access data from a buffer that's no longer available.
+3. Having these lists allows the browser to quickly and efficiently handle the DetachArrayBuffer operation because it knows exactly which views are associated with an ArrayBuffer that's being detached.
+4. Hence, these lists enable an efficient implementation of the DetachArrayBuffer operation.
+
+In situations, however, where a web page creates millions of ArrayBuffers, (e.g., WebGL-based games), updating those lists during garbage collection causes significant jank.
+
+ex: [https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/bufferData](https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/bufferData)
+
+In Chrome 46, we removed these lists and instead detect detached buffers by inserting checks before every load and store to ArrayBuffers.
+
+> Buffer: region of a memory used to store data temporarily while it is being moved from one place to another.
+
+This amortizes(reduce or pay off (a debt) with regular payments) the cost of walking the big bookkeeping list during GC by spreading it throughout program execution resulting in less jank.
+
+Although the per-access checks can theoretically slow down the throughput of programs that heavily use ArrayBuffers,
+in practice V8's optimizing compiler can often remove redundant(not or no longer needed or useful; superfluous)
+checks and hoist remaining checks out of loops, resulting in a much smoother execution profile with little or
+no overall performance penalty.
+
+### 2. Bookkeeping associated with tracking the lifetimes of objects shared between Chrome and V8
+
+Another source of jank is the bookkeeping associated with tracking the lifetimes of objects shared between Chrome and V8. Although the Chrome and V8 memory heaps are distinct, they must be synchronized(occur at the same time or rate) for certain objects, like DOM nodes, that are implemented in Chrome’s C++ code but accessible from JavaScript.
+
+V8 creates an opaque(not able to be seen through; not transparent) data type called a handle that allows Chrome to manipulate a V8 heap object without knowing any of the details of the implementation.
+
+<Image
+  src="/Jank-Busters-Part-One/Drawing 2023-10-19 02.02.21.light.png"
+  width="305"
+  height="304"
+  alt="Image"
+/>
+
+The object’s lifetime is bound(something certain or likely to happen, or to do or be something) to the handle: as long as Chrome keeps the handle around, V8’s garbage collector won’t throw away the object.
+
+V8 creates an internal data structure called a global reference for each handle it passes back out to Chrome through the V8 API, and these global references are what tell V8’s garbage collector that the object is still alive.
+
+<Image
+  src="/Jank-Busters-Part-One/Drawing 2023-10-19 02.02.21 1.light.png"
+  width="500"
+  height="304"
+  alt="Image"
+/>
+
+For WebGL games, Chrome may create millions of such handles, and V8, in turn,
+needs to create the corresponding global references to manage their lifecycle.
+Processing these huge amounts of global references in the main garbage collection pause is observable as jank.
+
+<Image
+  src="/Jank-Busters-Part-One/Drawing 2023-10-19 02.02.21 1 1.light.png"
+  width="500"
+  height="304"
+  alt="Image"
+/>
+
+Fortunately, objects communicated to WebGL are often just passed along and never actually modified, enabling simple static escape analysis.
+
+> Escape Analysis: It is a method for determining the dynamic scope of pointers – where in the program a pointer can be accessed.
+> It is related to pointer analysis and shape analysis
+
+n essence, for WebGL functions that are known to usually take small arrays as parameters the underlying data is copied on the stack, making a global reference obsolete(no longer produced or used; out of date). The result of such a mixed approach is a reduction of pause time by up to 50% for rendering-heavy WebGL games.
+
+Most of V8’s garbage collection is performed on the main rendering thread. Moving garbage collection operations to concurrent threads reduces the waiting time for the garbage collector and further reduces jank. This is an inherently complicated task since the main JavaScript application and the garbage collector may simultaneous observe and modify the same objects.
+
+Until now, concurrency was limited to sweeping the old generation of the regular object JS heap. Recently, we also implemented concurrent sweeping of the code and map space of the V8 heap. Additionally, we implemented concurrent unmapping of unused pages to reduce the work that has to be performed on the main thread, c.f. Figure 2.
+
+<Image
+  src="/Jank-Busters-Part-One/gc-concurrent-threads.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+<iframe
+  width="560"
+  height="315"
+  src="https://www.youtube.com/embed/3BsBbIFDygI?si=ueimm5XKMbFYJyY3"
+  title="YouTube video player"
+  frameborder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  allowfullscreen
+></iframe>
+<iframe
+  width="560"
+  height="315"
+  src="https://www.youtube.com/embed/FOjCSAnt6_c?si=Z-klcyTdX1DevzyS"
+  title="YouTube video player"
+  frameborder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  allowfullscreen
+></iframe>
+
+### Source
+
+- [https://v8.dev/blog/jank-busters](https://v8.dev/blog/jank-busters)
