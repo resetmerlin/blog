@@ -1,0 +1,371 @@
+---
+title: V8 Memory Visualization Part One · V8
+description: Visualizing memory management in the V8 Engine
+date: "2024-01-07"
+---
+
+When you open a webpage, a single JavaScript context is typically created for that page.
+If that page has web workers or service workers (which are used to run scripts in the background independent of the webpage), each worker would get its own separate JavaScript context.
+
+> What is JavaScript context in V8 engine?: In the context of the V8 engine and browsers, when we mention "JavaScript context", it typically refers to an instance of the V8 engine running a set of JavaScript code.
+> For example, each tab in a browser can have its own separate JavaScript context, ensuring that scripts in one tab don't directly interfere with scripts in another. Similarly, web workers and service workers have their own separate contexts.
+
+<video
+  src="/V8-Memory-Visualization-Part-One/Screencast from 2023년 09월 20일 11시 05분 30초.webm"
+  controls
+  width="718"
+  height="404"
+  alt="V8 Memory Visualization Video"
+>
+  Sorry, your browser doesn't support embedded videos.
+</video>
+
+In this video, I opened a new tab and this means that I create Javascript context per tab and the V8 engine gives each context(separate process)
+
+The V8 engine, in order to keep these contexts from interfering with each other and to achieve true parallelism, gives each context its own separate process. This means each context runs in its own memory space, independent of the others.
+
+First, let us see what the memory structure of the V8 engine is. Since JavaScript is single-threaded V8 also uses a single process per JavaScript context and hence if you use service workers it will spawn a new V8 process per worker.
+
+> A running program is always represented by some allocated memory in the V8 process and
+> this is called Resident Set?: Yes
+
+so what is Resident Set in V8 Memory?
+
+## Resident Set
+
+The Resident Set is a measure of how much of that program's memory remains in the RAM(i.e., hasn't been swapped out). It's the "resident" part of the program's memory footprint.
+
+In other words, it's the portion of the program's memory that is "living" in the fast-access memory (RAM) at any given moment.
+
+So when the statement says:
+"A running program is always represented by some allocated memory in the V8 process and this is called Resident Set."
+
+It means:
+
+When the V8 engine runs a JavaScript program, it uses some of the computer's memory.
+The part of this memory that remains in RAM (and hasn't been moved or swapped out by the operating system) is what we refer to as the Resident Set for that V8 process.
+In simpler terms, think of the Resident Set as the "currently active memory footprint"of your JavaScript program as it runs in the V8 engine.
+
+It's the memory that your program is actively using right now and is immediately accessible for the program's operations.
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/js foot print.light.png"
+  width="318"
+  height="404"
+  alt="Image"
+/>
+
+This is further divided into different segments as below:
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230918161701.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+## 1. Heap Memory
+
+This is where V8 stores objects or dynamic data. This is the biggest block of memory area and this is where Garbage Collection(GC) takes place. The entire heap memory is not garbage collected, only the Young and Old space is managed by garbage collection. Heap is further divided into below:
+
+### a. New space(Young generation)
+
+What is the meaning of New space?
+New space or “Young generation”(animal, or plant has not lived or existed for very long and is not yet mature) is where new objects live and most of these objects are short-lived.
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230914171608.png"
+  width="318"
+  height="404"
+  alt="Image"
+/>
+
+> Wdym objects are short-lived?
+> In the context of memory management, especially in garbage-collected languages,
+> when we say objects are "short-lived", we mean that these objects are created and
+> then quickly become unreachable or not needed anymore in the program.
+
+For example, in this code, the 'a' property of the object originally in x has zero references to it. So it would be garbage collected
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230926031558.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+BUT I found that it's not garbage collected
+
+> How did u know?: I cloned V8 engine and check the garbage collected via `--trace-gc`
+
+```bash
+~/v8/v8/out/x64.release$ ./d8 --trace-gc  /home/resetmerlin/UbuntuCodeRepo/d8Practice/index.js
+```
+
+so I realized that eventhough i created a variable in function, it won't get gc based on the precondition
+
+> Why?
+
+There are several reasons
+
+- For smaller scripts or scripts that don't allocate much memory, it's entirely possible that the garbage collector didn't find a reason to run within the duration of your script's execution.
+- If your script is very short and executes quickly, there might not be enough "work" being done for the garbage collector to step in. Garbage collection has overhead, so the engine doesn't run it unless it has to.
+- If you have any output redirection in place (not evident from your command, but just covering all bases), the GC tracing might be getting sent somewhere else.
+
+**So if u Increase Memory Usage, the gc will appear or just for to gc() might better**
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230926031814.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230926031845.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+In this output, the numbers before and after the arrow (->) represent the used memory
+in the new space before and after the scavenge, respectively. The number in parentheses
+is the total size of the new space.
+
+**In this space(New space(Young generation)), there are two semi-space**
+
+In the context of the V8 engine's garbage collection strategy, the New Space is divided into two equal parts or "semi-spaces": the "from-space" and the "to-space". Initially, objects are allocated in the "from-space". When a garbage collection cycle runs:
+
+> Semi space("from-space"): Live objects in the "from-space" that are still being used are copied over to the "to-space".
+
+> Semi space("to-space"):Once the copying is complete, the roles of the "from-space" and the "to-space" are swapped. The original "from-space" is now empty and becomes the new "to-space", and vice versa.
+
+#### How it managed?
+
+This space is managed by the “Scavenger(Minor GC)”, we will look at it later. The size of the new space can be controlled using the --min_semi_space_size(Initial) and --max_semi_space_size(Max) V8 flags.
+
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/HhpiOzRfGwU?si=z0X8vkNTQPppwI87"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
+
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/GMZV9XfBHwk?si=hKRh3BvqflO4TMpv"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
+
+### b.Old space(Old generation)
+
+Old space or “Old generation” is where objects that survived the “New space” for two minor GC cycles are moved to.
+
+The V8 engine has a mechanism where it tries to efficiently manage memory. Newly created objects start their life in the "New space" (or Young Generation).
+
+If these objects are still being used after one garbage collection cycle in the New space, they remain there.If they continue to be used and are still present after a second garbage collection cycle in the New space, V8 assumes that these objects might be needed for a longer time and thus moves them to the "Old space" (or Old Generation).
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Old space explaination.light.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+This migration from the New space to the Old space after surviving two minor garbage collection cycles is what's being referred to.
+
+> Object survived?: When we say an object "survived," we mean that it wasn't garbage collected.
+> In the context of memory management, garbage collection processes will clean up and reclaim
+> memory from objects that are no longer needed or referenced by the program.
+> If an object is still being referenced and used, it is considered "alive" or having
+> "survived" a garbage collection cycle.
+
+This space is managed up by the Major GC(Mark-Sweep & Mark-Compact)”, we will look at it later. The size of old space can be controlled using the --initial_old_space_size(Initial) and --max_old_space_size(Max) V8 flags.
+
+This space is divided into two: old pointer space, old data space
+
+#### 1. Old pointer space
+
+Contains survived objects that have pointers to other objects.
+
+In the context of V8's memory management and other similar systems, when we talk about objects having "pointers to other objects," we are essentially talking about objects that have references to other objects. In languages like JavaScript, objects often hold references to other objects, creating a connected network of objects.
+
+The term "pointer" is used because, under the hood, these references are often implemented using pointers in the native machine code.
+
+##### Examples:
+
+1. Objects with nested objects
+   <Image
+     src="/V8-Memory-Visualization-Part-One/Pasted image 20230927195407.png"
+     width="718"
+     height="404"
+     alt="Image"
+   />
+2. Array of Objects
+   <Image
+     src="/V8-Memory-Visualization-Part-One/Pasted image 20230927195447.png"
+     width="718"
+     height="404"
+     alt="Image"
+   />
+3. Functions as Properties (Methods)
+   <Image
+     src="/V8-Memory-Visualization-Part-One/Pasted image 20230927195517.png"
+     width="718"
+     height="404"
+     alt="Image"
+   />
+4. Objects with Array Properties
+   <Image
+     src="/V8-Memory-Visualization-Part-One/Pasted image 20230927195617.png"
+     width="718"
+     height="404"
+     alt="Image"
+   />
+
+#### 2. Old data space
+
+Contains objects that just contain data(no pointer to other objects). Strings, boxed numbers, and arrays of unboxed doubles are moved here after surviving in “New space” for two minor GC cycles.
+
+> Boxed vs Unboxed?: "Unboxed" refers to a representation of data in memory that doesn't include
+> any additional information or overhead other than the data itself. In the context of
+> programming languages, when we say a value is "unboxed," it means the value is stored directly,
+> without any additional metadata or pointer wrappers.
+
+**Boxed**:
+
+- In many languages and systems, some values are stored with additional metadata. This combined representation (data plus metadata) is often called a "box" or "boxed value".
+- A boxed value might contain the actual data, plus type information, reference counts, or other metadata.
+- For example, in some languages, an integer might be stored as a full-blown object with methods, type information, etc., rather than just a simple piece of memory with an integer value.
+
+**Unboxed**:
+
+- An unboxed value is just the raw value without any additional metadata.
+- It's the most memory-efficient way to store a piece of data, and accessing it can be faster because there's no need to dereference a pointer or check metadata.
+- Continuing with the integer example, an unboxed integer would just be stored directly as a series of bits representing the integer value, without any additional object overhead.
+
+> Boxed Numbers?: In JavaScript, numbers by default are primitive types.
+> This means that they're not objects and don't have methods or properties associated with them.
+> But you might wonder, how can we then do something like `(123).toString()` if numbers aren't objects?
+
+The answer is boxing. When you try to access a method or property on a number, JavaScript temporarily wraps (or "boxes") the primitive number in a Number object, lets you access the method or property, and then discards the object. This process is usually abstracted away from the developer, but it's how JavaScript lets you treat a primitive type like an object for a moment. This "boxed" version is an actual object in memory, and thus can be handled differently by the garbage collector compared to the primitive type.
+
+**Examples**
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230928001340.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+when you call a method like `toFixed`, the primitive number value is temporarily "boxed" into a `Number` object, which provides methods like `toFixed`. After the method call, it can be unboxed again.
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230928001520.png"
+  width="318"
+  height="404"
+  alt="Image"
+/>
+
+**unboxed**
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230928001852.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+**boxed**
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230928002021.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+**Unboxed**
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230928002129.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+**Boxed (Boolean Object)**:
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230928002142.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+#### Arrays of Unboxed Doubles?
+
+Certainly! "Arrays of Unboxed Doubles" refer to arrays that only contain floating-point numbers (`double` values in many languages). When a JavaScript engine detects such arrays, it can optimize memory storage for them.
+
+**array of unboxed doubles**:
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230926205339.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+**no the array of unboxed doubles**:
+
+<Image
+  src="/V8-Memory-Visualization-Part-One/Pasted image 20230926205401.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+##### Primitive data type stores in Stack?
+
+**Dynamic Nature of JavaScript**: Since JavaScript is dynamically typed, variables can change their types over the course of execution. For instance, a variable might start out as a number and later become a string or an object.
+
+**Objects and Primitives**: In JavaScript, there are primitive values (like numbers, booleans, and strings) and objects. Even though primitives are typically stack-allocated, there are scenarios where they might be wrapped in objects (e.g., boxed numbers) or part of more complex structures. In these scenarios, they can end up on the heap.
+
+**Strings**: Strings in JavaScript are a special case. Even though they are primitive, they can be of arbitrary length, and large strings won't fit on the stack. So, they are often stored on the heap.
+
+To summarize: While it's true that primitive types are often stored on the stack, the dynamic nature of JavaScript and the optimization strategies employed by engines like V8 mean that under certain circumstances, even primitive values or their equivalents can end up being stored in heap memory.
+
+##### Why Does This Matter?
+
+1.  **Performance**: Unboxed values are generally faster to access and manipulate. They take up less memory and don't require the overhead of accessing an object's properties or methods.
+2.  **Semantics**: In languages like JavaScript, boxed and unboxed values can behave differently, even if they represent the same underlying data. This can lead to subtle bugs or confusion.
+3.  **Memory**: Especially in high-performance applications, memory usage can be critical. Using unboxed values when possible can reduce the memory footprint of an application.
+
+<iframe
+  width="560"
+  height="315"
+  src="https://www.youtube.com/embed/hdYf7Ib3BA8?si=o6a2T2W4hIiiFLBr"
+  title="YouTube video player"
+  frameborder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  allowfullscreen
+></iframe>
+
+<iframe
+  width="560"
+  height="315"
+  src="https://www.youtube.com/embed/x_TDoZp7dHo?si=7FWtEbQqCg6ZpnD7"
+  title="YouTube video player"
+  frameborder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  allowfullscreen
+></iframe>
