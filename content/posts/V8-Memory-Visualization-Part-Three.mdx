@@ -1,0 +1,243 @@
+---
+title: V8 Memory Visualization Part Three · V8
+description: Visualizing memory management in the V8 Engine
+date: "2024-01-15"
+---
+
+### d. Code space?
+
+This is where the **Just In Time(JIT)** compiler stores compiled code Blocks. This is the only space with executable memory (although `Codes` may be allocated in “Large object space”, and those are executable, too).
+
+#### What is JIT complier?
+
+**Just In Time (JIT) compiler** is a crucial component in many modern programming languages, especially interpreted ones like JavaScript. Let's dive into what it means:
+
+**Compilation**: The source code is converted to machine code (or bytecode) by a compiler before it's executed. This machine code is then run by the computer's processor. Languages like C and C++ typically follow this model.
+
+#### So, how about during execution? it reads bytecode to execute?
+
+Yes, for compiled languages like Java, the compiler converts the source code into an intermediate form called bytecode. This bytecode is then interpreted and executed by a virtual machine, like the Java Virtual Machine (JVM), or it can further be compiled at runtime by a Just-In-Time (JIT) compiler to produce machine code for the processor to execute. Bytecode is not the same as machine code, but it's closer to machine code than it is to high-level source code. It's a set of instructions that are platform-independent and can be executed by a virtual machine.
+
+example of ByteCode is like:
+
+<Image
+  src="/V8-Memory-Visualization-Part-Three/Pasted image 20231013201140.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+**What is processor in computer?**  
+The processor, often called the Central Processing Unit (CPU), is the primary component of a computer that performs most of the processing. It executes instructions, performs arithmetic and logical operations, and manages data in memory. Processors can have multiple cores, which allow them to perform multiple tasks simultaneously.
+
+**Interpretation**: The source code is read and executed line-by-line by an interpreter while the program is running. This means there's no pre-compiled machine code. Languages like Python and early versions of JavaScript followed this model.
+
+Each approach has its advantages and disadvantages. Compilation generally results in faster execution because the code is already translated to machine instructions before it's run. However, there's an upfront time cost for the compilation process.
+
+#### Upfront time cost?
+
+"Upfront time cost" means the time taken before the actual execution of the program. In the context of compilation, this refers to the time taken to convert the source code into machine code or bytecode before it can be executed. For example, if you have a large C++ program, it might take some time to compile it. Only after this compilation can you run the resulting machine code. This delay before you can run the code is the "upfront time cost". However, once compiled, the program typically runs faster than if it were interpreted.
+
+Interpretation allows for more flexibility (like executing code on-the-fly), but it can be slower because the code needs to be interpreted every time it's run.
+
+> Interpreter reads code line-by-line
+
+<video
+  src="/V8-Memory-Visualization-Part-Three/Screencast from 2023년 10월 13일 19시 33분 11초.webm"
+  controls
+  width="718"
+  height="404"
+  alt="V8 Memory Visualization Video"
+/>
+
+#### How JIT complier works
+
+(Very Important!!!)  
+The **JIT compiler combines elements of both compilers and interpreters**. Here's how it works, especially in the context of JavaScript and the V8 engine:
+
+1.  **Initial Interpretation**: When the JavaScript code is first run, it's interpreted line-by-line, much like traditional interpretation.
+
+2.  **Profiling**: As the code is being interpreted, the JIT system keeps track of which parts of the code are run most frequently (often called "hot paths").
+
+3.  **On-the-Fly Compilation**: The frequently executed parts (or "hot" code) are **then compiled into machine code while the program is still running**. This way, the next time those parts are executed, they can run directly as machine code, which is much faster than interpreting them again.
+
+4.  **Adaptive Optimization**: Modern JIT compilers, like the one in V8, **can do more** than just simple compilation.
+
+<video
+  src="/V8-Memory-Visualization-Part-Three/Screencast from 2023년 10월 13일 19시 57분 14초.webm"
+  controls
+  width="718"
+  height="404"
+  alt="V8 Memory Visualization Video"
+/>
+
+> but **can do more** than just simple compilation sounds abstract right?:
+> It refers to additional optimization techniques they apply to the machine code, not a quantifiable "amount." The V8 engine, for example, employs various optimization strategies to make the code run faster.
+
+Some of these optimizations include:
+
+- **Inlining**: This involves replacing a function call with the body of the function itself. This saves the overhead of a function call and can lead to other optimizations.
+- **Dead code elimination**: This involves removing code that doesn't affect the program's output.
+- **Loop unrolling**: Expanding out iterations of a loop, which can make the loop run faster.
+- **Type specialization**: Optimizing code based on the types of values it operates on.
+
+#### Let's see in real life
+
+```
+./d8 --trace-opt yourCode.js
+```
+
+<Image
+  src="/V8-Memory-Visualization-Part-Three/Pasted image 20231013200522.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+<Image
+  src="/V8-Memory-Visualization-Part-Three/Pasted image 20231013201756.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+They can optimize the machine code based on the observed patterns of how the code is being run. If the execution pattern changes, the JIT can re-optimize or even de-optimize the code.
+
+Ofc these patterns doesn't mean design patterns of your code
+
+Instead, the term is used to describe patterns of execution or behavior that the JIT compiler observes as your code runs.
+
+As an example, let's say a particular function in your code checks the type of its arguments every time it's called. If, during runtime, the JIT compiler observes that this function is always called with integers, it might optimize the machine code under the assumption that the function will continue to receive integers. This can lead to significant performance gains.
+
+However, suppose later the function starts receiving strings instead of integers. **The JIT compiler recognizes this change in the "pattern" of inputs and might "de-optimize"** the code or produce a new optimized version for the string input case.
+
+This adaptability is part of what makes JIT compilers powerful: they can optimize code based on real-world usage patterns, rather than purely static analysis of the code.
+
+Memory space in the V8 engine where the machine code generated by the JIT compiler is stored. This memory is "executable," meaning the CPU can directly execute instructions from this memory region.
+
+This is the "Initial Interpretation" phase. As the code runs, V8 identifies "hot" parts of the code that are frequently executed. These segments are then JIT compiled to improve their execution speed.
+
+The compiled code blocks (machine code) are stored in specific memory areas, like the **Code-space** you mentioned. This is where the machine code resides and can be executed by the CPU.
+
+The memory concepts like Stack, Heap, Young Generation, Old Generation, etc., primarily pertain to how data (not the JIT-compiled code) is managed in memory.
+
+The Stack deals with primitive data types and function calls, while the Heap is where objects and larger data structures are allocated. The Young and Old Generations are parts of the Heap and relate to the garbage collection strategy used by V8.
+
+To summarize, the V8 engine begins by interpreting JavaScript. Over time, frequently executed parts are JIT compiled for better performance.
+
+The resulting machine code is stored in specific memory regions, separate from where your data (like objects and variables) are stored. The memory management concepts you mentioned, like Stack and Heap, are primarily about data storage, not the storage of JIT-compiled code.
+
+> So Code-space is the one our code that already executed came from?
+> Yes and no. The `Code-space` is where the Just In Time (JIT) compiler places the machine code that it generates from your JavaScript code. **Before your JavaScript code is executed, it's translated to machine code by the JIT compiler, and this machine code is what actually runs on the processor. The `Code-space` is where that generated machine code resides. So, in a way, the code that gets executed by your CPU comes from the `Code-space`.** But remember, it's not the original JavaScript code; it's the compiled version of it
+
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/rnyxQBfpkfI?si=wFkRDYJLrUmdaQXw"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
+
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/keGAkbfEhGo?si=Pbxg_Rjnnkc-3bzt"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
+
+### e. Large object space?
+
+This is where objects which are larger than the of other spaces live. Each object gets its own [mmap](https://en.wikipedia.org/wiki/Mmap)' region of memory. Large objects are never moved by the garbage collector.
+
+#### What is a mmap region of memory?
+
+`mmap` refers to a system call available in Unix-like operating systems, including Linux. Its primary purpose is to map either a file or a memory block into the address space of a process. This mechanism allows for various functionalities, including memory file mapping, shared memory, etc.
+
+you could do with paging hardware is a new feature Memory-map files. Normally the way to access a file is to open a file descriptor and then issue read requests and write requests. so we do an open a sequence of reads writes seeks( which move into the file close).
+
+<Image
+  src="/V8-Memory-Visualization-Part-Three/Drawing 2023-10-13 20.43.48.light.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+An alternative would be to say hey Kernel can you go ahead and load this file into my address space. So that the file foo will look as though it's just part of my memory. And I can just in order to read i just go to the address that i want to read from and use memo operations if i want to write i just assign to that memory location if i want to seek i just move a pointer up and down
+
+<Image
+  src="/V8-Memory-Visualization-Part-Three/Drawing 2023-10-13 20.43.48 1.light.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+so the map takes a file and will place it at a location within your address space. OFC The kernel has to get involved. so the kernel when you do this mapping is probably not going to go ahead and create physical pages for this entire address space and read all of the file from disk instead you can do it on demand.
+
+so it creates page table entries marks them as not present but keeps meta information that says this address space is a reference to this file.
+
+**Example**
+
+let's say this particular page someone tries to read or write from an address in there then that can be brought into memory is read and we now have a physical page
+
+<Image
+  src="/V8-Memory-Visualization-Part-Three/Drawing 2023-10-13 20.43.48 1 1.light.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+**Memory Mapping**: Typically, when you read from or write to a file, you do so in
+chunks, reading a bit of the file into memory, operating on it, then writing it back
+if necessary. `mmap` allows a process to map(The activity or process of creating
+a picture or diagram that represents something.) a file directly into its address
+space. This means that the file appears to the program as if it's a part of its memory,
+which can be accessed just like an array in the program. When the program reads or
+writes to this "array," it's actually reading from or writing to the file.
+
+> **"mmap'd region of memory" in the context of "Large object space":**  
+> In the context of the V8 engine's "Large object space," when an object is too large to fit comfortably in the standard memory spaces, V8 can use `mmap` to allocate a dedicated chunk of memory just for that object. This approach ensures efficient memory management for such large objects.
+> In the context of the V8 engine's "Large object space," when an object is too large to fit comfortably in the standard memory spaces, V8 can use `mmap` to allocate a dedicated chunk of memory just for that object. This approach ensures efficient memory management for such large objects.
+
+## 2. Stack Memory
+
+This is the stack memory area and there is one stack per V8 process.
+
+> One stack per V8 process?
+> You might think that So there is one stack per reading one line process.
+> But this doesn't mean one stack per line of code. Instead, it refers to the idea that each instance of the V8 engine (which may be executing a JavaScript application or script) has its own execution stack.
+
+When we talk about processes in computing, we're often referring to an instance of a program that's executing. In the context of V8, if you have multiple instances of a Node.js application running, for instance, each one of those would be a separate process with its own V8 engine and its own stack.
+
+Let's use an analogy: Think of the V8 process as a book-reading machine. The machine reads one book at a time (a JavaScript application). Each book has many lines (lines of code). The machine uses a bookmark (the stack) to remember where it's up to. Each time the machine reads a book, it uses a new bookmark. Even though it reads one line at a time, it doesn't need a new bookmark for each line; it just moves the bookmark down one line.
+
+Similarly, V8 reads and executes one line of code at a time, using the stack to keep track of where it is, but it doesn't need a new stack for each line. The stack is used to keep track of function calls, local variables, and other execution context details. As V8 executes your code, it pushes and pops data onto and off the stack, allowing it to keep track of where it is in the program and what it should do next.
+
+This is where static data including method/function frames, primitive values, and pointers to objects are stored. The stack memory limit can be set using the --stack_size V8 flag.
+
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/fTz8BscUXfE?si=BosZxVgTu94V33uw"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/EpHv31zjSCU?si=EKGajAIM9TwdK3uO"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
