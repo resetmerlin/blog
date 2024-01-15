@@ -1,0 +1,257 @@
+---
+title: V8 Memory Visualization Part Two · V8
+description: Visualizing memory management in the V8 Engine
+date: "2024-01-15"
+---
+
+## C. Cell space, property cell space, and map space?
+
+These spaces contain `Cells`, `PropertyCells`, and `Maps`, respectively. Each of these spaces contains objects which are all the **same size**
+
+Also has some constraints on what kind of objects they point to, which simplifies collection.
+
+<Image
+  src="/V8-Memory-Visualization-Part-Two/Pasted image 20230928185017.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+> Why is it good that objects are all the same size?: In V8, memory is managed in
+different "spaces" to optimize garbage collection and memory layout for different
+types of objects. Let's go deeper into the questions you raised:
+
+#### 1\. Why the same size?
+
+When objects within a space are of the same size, it offers several benefits:
+
+- **Simpler Allocation**: Allocation can be as simple as incrementing a pointer by a fixed offset. This is much faster than searching through a list of free memory blocks of various sizes.
+- **No Fragmentation**: In spaces where all objects are of uniform size, there's no risk of fragmentation. Fragmentation occurs when there are small free memory gaps between allocated blocks, which are too small to be useful. Fragmentation can waste memory and complicate memory management.
+
+<Image
+  src="/V8-Memory-Visualization-Part-Two/Pasted image 20230928132029.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+- **Efficient Garbage Collection**: Garbage collection can be more efficient when
+dealing with objects of the same size. For example, when objects are being moved
+or compacted("Compaction" in the context of garbage collection refers to the process
+of relocating objects in memory to eliminate fragmentation and make better use of
+available memory space), having fixed sizes simplifies the computation and reduces
+the overhead.
+
+**before compaction**
+
+```
+| Object A | Free Space | Object B | Free Space | Object C | Free Space |
+
+```
+
+**after compaction**
+
+```
+| Object A | Object B | Object C |          Free Space           |
+
+```
+
+Also has some **constraints** on what kind of objects they point to, which simplifies collection.
+
+#### 2\. What kind of constraints?
+
+The constraints generally refer to:
+
+- **Type of Objects**: Each space is designed for a specific type of object. For example, the Cell space is meant for Cells, the Property Cell space for PropertyCells, and the Map space for Maps.
+- **Pointers Constraints**: Certain spaces might have constraints on what kinds of other objects they can point to. For example, some spaces might only allow pointers to certain other spaces. This can help in improving the efficiency of garbage collection, as the garbage collector can make assumptions based on these constraints.
+- **Liveness and Longevity Constraints**: Some spaces are designed for objects that are expected to be short-lived, while others are for objects expected to remain in memory for a longer time. By segregating objects based on their expected lifetimes, garbage collection can be optimized. For instance, V8's generational garbage collection strategy separates objects into a "young" space (short-lived objects) and an "old" space (longer-lived objects), because most objects die young. By frequently collecting the young space and less frequently the old space, the garbage collector can be more efficient.
+
+To understand these spaces and their constraints in depth, one would need to dive deep into the V8's source code and its design documentation. The key takeaway is that by organizing memory in this manner, V8 can optimize memory usage and garbage collection for performance and efficiency.
+
+These spaces are more internal to V8's architecture. V8 uses these structures to efficiently manage and organize objects and their properties. Here's a breakdown:
+
+### 1\. Cell space
+
+Contains 'Cell' objects. Cells are basic units of storage in V8.
+
+They represent word-sized pieces of data, which can be a single integer, a reference to a more complex object, or any other piece of data that fits into the size of a "word" in memory. Their utility is in how they allow V8 to manage memory efficiently. For instance:
+
+> word-sized?
+
+When we say "word-sized," we're referring to a chunk of memory that a processor can handle in one operation. The size of this chunk depends on the processor's architecture:
+
+- For a **32-bit** system, a word is typically **4 bytes (or 32 bits)**.
+- For a **64-bit** system, a word is typically **8 bytes (or 64 bits)**.
+
+This means if you read a word from memory on a 32-bit system, you're reading 4 bytes at once, while on a 64-bit system, you're reading 8 bytes.
+
+1.  **Integers**: On a 32-bit system, an integer might occupy a full word, i.e., 4 bytes. On a 64-bit system, an integer could either occupy a full word (8 bytes) or maybe only part of it, depending on the specific integer type.
+2.  **Pointers/References**: In programming, especially in languages like C or C++, when you create a pointer variable, it stores the memory address of another variable. On a 32-bit system, this address (pointer) is 4 bytes long, while on a 64-bit system, it's 8 bytes long.
+
+**S0** When V8 refers to a 'Cell' as a basic unit of storage, it means that it's one of the simplest and smallest storage units it uses to manage memory.
+
+They're used for various purposes within V8's internal machinery.
+
+#### 1.1 **Memory Management**
+
+Cells help V8 to allocate and deallocate memory in a predictable and consistent manner.
+
+#### 1.2 Reference Tracking
+
+A cell might hold a reference to an object. This is useful for the garbage collection process.
+
+so when u copy object and console.log() if both objects are same, and if it is same that means that cell hold reference to an object.
+
+If you "copy" an object in JavaScript using assignment, like `var obj2 = obj1;`, you're not copying the object itself. Instead, you're copying the _reference_ to the object.
+
+Both `obj1` and `obj2` now point to the same memory location – the same object in memory. When we say a cell holds a reference, it means the cell holds the memory address where the actual object data resides. If both `obj1` and `obj2` are the same when you `console.log()` them, it's because they're pointing to the same address – the same cells in memory.
+
+it's not accurate to say that the Cell space stores "all of the references to an object." Depending on the context and the specific state of the V8 engine, references to objects might be spread across various memory spaces and mechanisms. Also, objects themselves, with their data and properties, are typically stored in object spaces, not just the Cell space.
+
+#### 1.3 Type Information
+
+V8 can use cells to store information about the type of data they hold.
+
+it means that type of data they hold is reference type. cuz primitive types are store in stack .
+
+In summary, while primitive values typically reside on the stack, the JavaScript engine (like V8) manages memory in more sophisticated ways for better performance and flexibility. Cells and other such structures aid in this complex memory management process.
+
+it means the cell contains the memory address where the actual object's data is located. So, the cell acts as a pointer to that memory location.
+
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/ins2McP8sGU?si=qTHaT_jYEfb93E5S"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
+
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/7q6o9yxQVKc?si=NTWnfGlCcNpaQS4T"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
+
+### 2. Property cell space
+
+Contains 'PropertyCell' objects. These are used to store metadata about properties of JavaScript objects.
+
+For instance, when properties are added to or removed from an object, the shape of the object might change, and PropertyCells can help in managing this metadata.
+
+> Metadata? :in a general sense, is "data about data". It provides information about the primary data's content, quality, condition, origin, and other characteristics. A simple real-world example of metadata is a book's table of contents: it provides an overview of the book's content without detailing the content itself
+
+> The meaning of metadata about properties of JavaScript objects: In the V8 engine, JavaScript objects can have properties. Each property has associated attributes and data. For instance, the attributes could specify whether the property is writable, enumerable, or configurable. Additionally, an object property can have a value, which can be a primitive type or a reference to another object.
+
+`PropertyCell` objects in V8 help store and manage this kind of metadata related to properties of JavaScript objects.
+
+When you have a JavaScript object like:
+
+<Image
+  src="/V8-Memory-Visualization-Part-Two/Pasted image 20230914215218.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+The properties `name` and `age` have associated metadata like:
+
+- **Type**: What kind of data does this property hold? Is it a string, number, or another object?
+- **Attributes**: Is this property writable? Enumerable? Configurable?
+- **Location**: Where is the actual data for this property stored in memory?
+- **Others**: Any optimizations that V8 might want to store about accessing this property quickly.
+
+Whenever properties are added, modified, or removed from an object, this metadata might need updating. This ensures V8 can manage objects and their properties efficiently and performantly.
+
+In summary, when we refer to "metadata about properties of JavaScript objects", we're talking about this set of information and attributes that describe the property beyond its mere value.
+
+### 3\. **Map space**
+
+Contains 'Map' objects. In V8, Maps are crucial data structures that describe the shape or layout of JavaScript objects.
+
+In the context of V8's engine architecture, a "Map" (also sometimes called "shape" or "hidden class") represents the structure or layout of an object. It doesn't mean the JavaScript `Map` object that you can create using `new Map()` in your code. Instead, it's an internal representation of the object's structure.
+
+#### Why is it crucial data structure?
+
+- **Efficiency**: With Maps, V8 can quickly determine the layout of an object in memory. Instead of checking each property of an object every time it's accessed, V8 can refer to the object's associated Map to understand the structure.
+- **Inline Caching**: This is an optimization technique in V8. When a property is accessed on an object, instead of doing a full property lookup each time, V8 checks the object's Map. If the Map matches what V8 expects (from previous accesses), the engine can take a shortcut and access the property faster.
+- **Shared Structure**: Multiple objects that have the same structure can share a single Map. For instance, if you create multiple objects with the same constructor, all those objects share the same Map, saving memory.
+
+<Image
+  src="/V8-Memory-Visualization-Part-Two/Pasted image 20230914215832.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+Both `john` and `alice` have the properties `name` and `age`, and thus, from V8's perspective, they share the same "shape" or "layout". This means they can share a single Map that describes this layout.
+
+This shared Map might contain:
+
+- Information that the `name` property is a string and its location in memory.
+- Information that the `age` property is a number and its location.
+
+Now, if you were to add a new property to `john`:
+
+<Image
+  src="/V8-Memory-Visualization-Part-Two/Pasted image 20230914215949.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
+
+`john`'s shape changes. V8 would create a new Map to represent this new structure for `john`, while `alice` continues using the original Map.
+
+This system allows V8 to manage and optimize property access efficiently. The use of Maps reduces the need for repeated property lookups and allows for optimizations like inline caching, making JavaScript code execution faster in many scenarios.
+
+They provide a way for the engine to understand the structure of objects quickly, which is crucial for performance. For example, if two objects have the same shape (same properties and methods), they can share a Map, which reduces memory usage and increases speed when accessing properties.
+
+If two variables (like `obj1` and `obj2` above) point to the same object, then they have the same shape **and** reference the same memory address.
+
+However, two objects can have the same shape without referencing the same memory address (like `obj1` and `obj3` above). In this case, they have identical structures (same properties and methods), but they're separate objects in memory.
+
+```
+To clarify, sharing the same map doesn't mean sharing the same memory address for the whole object. It means sharing the same internal representation of the object's structure.
+```
+
+**So sharing Map can reduces memory usage and increases speed when accessing properties. Because...**
+
+- **Reduced Memory Usage**: When multiple objects share the same map (because they have the same shape), V8 doesn't need to recreate and store the same map information for each object. Instead, multiple objects can point to the same map. This helps in saving memory since the shape information doesn't need to be duplicated for each object.
+- **Increased Speed when Accessing Properties**: When V8 knows that an object has a certain map, and it has seen that map many times before, it can make certain assumptions about where to find properties on that object in memory. This is called "inline caching".
+
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/zwgmtX9uhXY?si=ZfGkas_t8o4kxzQI"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
+<iframe
+  allowfullscreen=""
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  frameborder="0"
+  title="YouTube video player"
+  src="https://www.youtube.com/embed/7tcnNA0BmS4?si=NzCEDHy3uhobmg40"
+  height="315"
+  width="560"
+  sandbox="allow-forms allow-modals allow-presentation allow-popups allow-same-origin allow-scripts"
+></iframe>
+
+#### Updates
+
+- Nowadays in 2024, V8 Memory structure changed like this:
+
+<Image
+  src="/V8-Memory-Visualization-Part-Two/Drawing 2023-09-29 10.59.15.light.png"
+  width="718"
+  height="404"
+  alt="Image"
+/>
